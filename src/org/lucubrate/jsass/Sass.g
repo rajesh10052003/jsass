@@ -34,6 +34,9 @@ public Token nextToken() {
     }
     return (Token)tokens.remove(0);
 }
+
+/* Was the last matched token LEADING_WHITESPACE ? */
+private boolean afterLeadingWS = false;
 }
 
 ///////////////////////////////////////////////////////////
@@ -61,10 +64,16 @@ statement
 
 /**
  * A CSS rule.
- * @todo WIP, just match declarations for now...
  */
 css_rule
-    :   css_declaration
+    :   css_selector^ (INDENT (css_declaration | css_rule)+ DEDENT)?
+    ;
+
+/**
+ * A CSS selector
+ */
+css_selector
+    :   SELECTOR NEWLINE!
     ;
 
 /**
@@ -81,11 +90,11 @@ css_declaration
 ///////////////////////////////////////////////////////////
 
 /**
- * A document-wide constant that can be used as the value of an attribute.
+ * A document-wide constant that can be used as the value of a declaration.
  */
 constant_declaration
     :   CONSTANT_IDENTIFIER
-            ( ASSIGNMENT^ | OPTIONAL_ASSIGNMENT^ )
+            ( ASSIGNMENT | OPTIONAL_ASSIGNMENT )^
             constant_expression
             NEWLINE!
     ;
@@ -98,10 +107,10 @@ constant_declaration
  * for).
  */
 constant_expression
-    :   constant_term+ ( ( PLUS^ | MINUS^ ) constant_term+ )*
+    :   constant_term+ ( ( PLUS | MINUS )^ constant_term+ )*
     ;
 constant_term
-    :   constant_factor ( ( MULT^ | DIV^ | MOD^ ) constant_factor )*
+    :   constant_factor ( ( MULT | DIV | MOD )^ constant_factor )*
     ;
 constant_factor
     :   INT
@@ -113,7 +122,88 @@ constant_factor
     ;
 
 ///////////////////////////////////////////////////////////
-// LEXER RULES                                           //
+// DOCUMENT LEXER RULES                                  //
+///////////////////////////////////////////////////////////
+
+/**
+ * One or more cross-platform newlines.  Empty lines are hidden.
+ */
+NEWLINE
+@init {int position = getCharPositionInLine();}
+    :   ('\r'? '\n')+
+        { if (position==0) { $channel = HIDDEN; } }
+    ;
+
+/**
+ * Hidden whitespace.
+ */
+WHITESPACE
+    :   {getCharPositionInLine() > 0}?=> ( ' ' | '\t' )+ { $channel=HIDDEN; }
+    ;
+
+/**
+ * Whitespace at the beginning of a line which is used in conjunction with
+ * SassTokenSource to generate INDENT and (imaginary) DEDENT tokens.
+ */
+LEADING_WHITESPACE
+    :   {getCharPositionInLine() == 0}?=> ' '+
+        ( '\r'? '\n' { $channel = HIDDEN; } )*
+        {afterLeadingWS = true;}
+    ;
+
+
+///////////////////////////////////////////////////////////
+// CSS LEXER RULES                                       //
+///////////////////////////////////////////////////////////
+
+fragment DECLARATION_SEPARATOR
+    :   ':'
+    ;
+fragment DECLARATION_PROPERTY
+    :   ~(' ' | '\t' | '\r' | '\n' | ASSIGNMENT | DECLARATION_SEPARATOR)+
+    ;
+fragment DECLARATION_VALUE
+    :   ~( ASSIGNMENT | '\n' | '\r' ) ~('\n' | '\r')*
+    ;
+/**
+ * A CSS property/value pair.
+ */
+DECLARATION
+    :   DECLARATION_SEPARATOR p=DECLARATION_PROPERTY
+        {
+        $p.setType(DECLARATION_PROPERTY);
+        emit($p);
+        afterLeadingWS = false;
+        }
+        (
+            ( WHITESPACE? a=ASSIGNMENT { $a.setType(ASSIGNMENT); emit($a); } )
+          | ( WHITESPACE v=DECLARATION_VALUE n=NEWLINE
+                {
+                    $v.setType(DECLARATION_VALUE); emit($v);
+                    $n.setType(NEWLINE); emit($n);
+                }
+            )
+        )
+    ;
+
+/**
+ * A CSS selector.
+ */
+SELECTOR
+    :   {getCharPositionInLine() == 0 || afterLeadingWS}?=>
+        (
+            ~( ASSIGNMENT
+               | DECLARATION_SEPARATOR
+               | CONSTANT_PREFIX
+               | ' ' | '\t'
+               | '\r' | '\n'
+             )
+            ~( '\r' | '\n' )*
+        )
+    ;
+
+///////////////////////////////////////////////////////////
+// CONSTANT LEXER RULES                                  //
 ///////////////////////////////////////////////////////////
 
 /**
@@ -137,6 +227,7 @@ CONSTANT_IDENTIFIER
     :   CONSTANT_PREFIX
         ('_' | 'a'..'z'| 'A'..'Z' | '\u0100'..'\ufffe' )
         ('_' | 'a'..'z'| 'A'..'Z' | '\u0100'..'\ufffe' | '0'..'9')*
+        {afterLeadingWS = false;}
     ;
 fragment
 CONSTANT_PREFIX
@@ -157,7 +248,7 @@ FLOAT
 fragment
 UNIT
     :   ('_' | '%' | 'a'..'z'| 'A'..'Z' | '\u0100'..'\ufffe' )
-        ('_' | 'a'..'z'| 'A'..'Z' | '\u0100'..'\ufffe' | '0'..'9')*
+        ('_' | '%' | 'a'..'z'| 'A'..'Z' | '\u0100'..'\ufffe' | '0'..'9')*
     ;
 fragment
 DIGIT
@@ -195,7 +286,7 @@ HEX_DIGIT
  * but it looks like a lot of people use the no-quote string literal feature,
  * so I'm going to keep it (to a degree).
  *
- * One particularly ugly result of this is the following:
+ * One ugly result of this is the following:
  * Sass~ :some_declaration = Clifford the big red dog
  * CSS~ some_declaration: Clifford the big #ff0000 dog
  *
@@ -210,55 +301,4 @@ fragment EscapeSequence
 STR :   ('_' | 'a'..'z'| 'A'..'Z' | '\u0100'..'\ufffe' )
             ('_' | 'a'..'z'| 'A'..'Z' | '\u0100'..'\ufffe' | '0'..'9')*
     |   '"' StringChar* '"'
-    ;
-
-/**
- * One or more cross-platform newlines.  Empty lines are hidden.
- */
-NEWLINE
-@init {int position = getCharPositionInLine();}
-    :   ('\r'? '\n')+
-        { if (position==0) { $channel = HIDDEN; } }
-    ;
-
-/**
- * Hidden whitespace.
- */
-WHITESPACE
-    :   {getCharPositionInLine() > 0}?=> ( ' ' | '\t' )+ { $channel=HIDDEN; }
-    ;
-
-/**
- * Whitespace at the beginning of a line which is used in conjunction with
- * SassTokenSource to generate INDENT and (imaginary) DEDENT tokens.
- */
-LEADING_WHITESPACE
-    :   {getCharPositionInLine() == 0}?=> ' '+
-        ( '\r'? '\n' { $channel = HIDDEN; } )*
-    ;
-
-fragment DECLARATION_SEPARATOR
-    :   ':'
-    ;
-fragment DECLARATION_PROPERTY
-    :   ~(' ' | '\t' | '\r' | '\n' | ASSIGNMENT | DECLARATION_SEPARATOR)+
-    ;
-fragment DECLARATION_VALUE
-    :   ~( ASSIGNMENT | '\n' | '\r' ) ~('\n' | '\r')*
-    ;
-DECLARATION
-    :   DECLARATION_SEPARATOR p=DECLARATION_PROPERTY
-        {
-        $p.setType(DECLARATION_PROPERTY);
-        emit($p);
-        }
-        (
-            ( WHITESPACE? a=ASSIGNMENT { $a.setType(ASSIGNMENT); emit($a); } )
-          | ( WHITESPACE v=DECLARATION_VALUE n=NEWLINE
-                {
-                    $v.setType(DECLARATION_VALUE); emit($v);
-                    $n.setType(NEWLINE); emit($n);
-                }
-            )
-        )
     ;
