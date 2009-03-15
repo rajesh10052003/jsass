@@ -181,31 +181,15 @@ fragment DECLARATION_VALUE
  * A CSS property/value pair.
  */
 DECLARATION
-    :   // Sass style declarations (e.g. ":width 20px")
-        DECLARATION_SEPARATOR p=DECLARATION_PROPERTY
+    :   DECLARATION_SEPARATOR p=DECLARATION_PROPERTY
         {
-            $p.setType(DECLARATION_PROPERTY); emit($p);
-            afterLeadingWS = false;
+        $p.setType(DECLARATION_PROPERTY);
+        emit($p);
+        afterLeadingWS = false;
         }
         (
             ( WHITESPACE? a=ASSIGNMENT { $a.setType(ASSIGNMENT); emit($a); } )
           | ( WHITESPACE v=DECLARATION_VALUE n=NEWLINE
-                {
-                    $v.setType(DECLARATION_VALUE); emit($v);
-                    $n.setType(NEWLINE); emit($n);
-                }
-            )
-        )
-    |   // CSS style declarations (e.g. "width: 20px")
-        l=LEADING_WHITESPACE p=DECLARATION_PROPERTY
-        {
-            $l.setType(LEADING_WHITESPACE); emit($l);
-            $p.setType(DECLARATION_PROPERTY); emit($p);
-            afterLeadingWS = false;
-        }
-        (
-            ( WHITESPACE? a=ASSIGNMENT { $a.setType(ASSIGNMENT); emit($a); } )
-          | ( DECLARATION_SEPARATOR WHITESPACE? v=DECLARATION_VALUE n=NEWLINE
                 {
                     $v.setType(DECLARATION_VALUE); emit($v);
                     $n.setType(NEWLINE); emit($n);
