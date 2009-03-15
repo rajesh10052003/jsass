@@ -19,6 +19,9 @@ options {
 tokens {
     INDENT;
     DEDENT;
+    SELECTOR_GROUP;
+    DECLARATION_GROUP;
+    SUBRULE_GROUP;
 }
 
 @lexer::members {
@@ -37,6 +40,11 @@ public Token nextToken() {
 
 /* Was the last matched token LEADING_WHITESPACE ? */
 private boolean afterLeadingWS = false;
+
+/* Are we currently at the beginning of a line (ignoring whitespace)? */
+private boolean isBeginningOfLine() {
+    return afterLeadingWS || getCharPositionInLine() == 0;
+}
 }
 
 ///////////////////////////////////////////////////////////
@@ -66,14 +74,17 @@ statement
  * A CSS rule.
  */
 css_rule
-    :   css_selector^ (INDENT (css_declaration | css_rule)+ DEDENT)?
+    :   css_selector (INDENT (css_declaration | css_rule)+ DEDENT)?
+        -> ^(SELECTOR_GROUP css_selector)
+           ^(DECLARATION_GROUP css_declaration*)?
+           ^(SUBRULE_GROUP css_rule*)?
     ;
 
 /**
  * A CSS selector
  */
 css_selector
-    :   SELECTOR NEWLINE!
+    :   SELECTOR+ NEWLINE!
     ;
 
 /**
@@ -116,6 +127,7 @@ constant_factor
     :   INT
     |   FLOAT
     |   COLOR
+    |   COLOR_SHORTCUTS
     |   STR
     |   CONSTANT_IDENTIFIER
     |   '('! constant_expression ')'!
@@ -186,19 +198,38 @@ DECLARATION
         )
     ;
 
-/**
+// css selector separator character (in a grouped selector)
+fragment SELECTOR_SEPARATOR
+    :   ','
+    ;
+// a css selector expression
+fragment SELECTOR
+    :   
+        ~( ASSIGNMENT
+           | DECLARATION_SEPARATOR
+           | CONSTANT_PREFIX
+           | SELECTOR_SEPARATOR
+           | ' ' | '\t'
+           | '\r' | '\n'
+         )
+        ~( '\r' | '\n' | SELECTOR_SEPARATOR )*
+    ;
+// allow a group selector to span multiple lines 
+fragment SELECTOR_WHITESPACE
+    :   WHITESPACE? (NEWLINE (' ' | '\t')*)?
+    ;
+ /**
  * A CSS selector.
  */
-SELECTOR
-    :   {getCharPositionInLine() == 0 || afterLeadingWS}?=>
+GROUPED_SELECTOR
+    :   {isBeginningOfLine()}?=>
         (
-            ~( ASSIGNMENT
-               | DECLARATION_SEPARATOR
-               | CONSTANT_PREFIX
-               | ' ' | '\t'
-               | '\r' | '\n'
-             )
-            ~( '\r' | '\n' )*
+            s1=SELECTOR { $s1.setType(SELECTOR); emit($s1); }
+              (
+                SELECTOR_SEPARATOR SELECTOR_WHITESPACE s2=SELECTOR
+                {  $s2.setType(SELECTOR); emit($s2); }
+              )*
+
         )
     ;
 
@@ -264,17 +295,16 @@ COLOR
     :   '#' (   HEX_DIGIT HEX_DIGIT HEX_DIGIT
               | HEX_DIGIT HEX_DIGIT HEX_DIGIT HEX_DIGIT HEX_DIGIT HEX_DIGIT
             )
-    |   COLOR_SHORTCUTS
-    ;
-fragment
-COLOR_SHORTCUTS
-    :   'black' | 'silver' | 'gray' | 'white' | 'maroon' | 'red' | 'purple' |
-            'fuchsia' | 'green' | 'lime' | 'olive' | 'yellow' | 'navy' |
-            'blue' |'teal' | 'aqua'
     ;
 fragment
 HEX_DIGIT
     :   'a'..'f' | 'A'..'F' | DIGIT
+    ;
+COLOR_SHORTCUTS
+    :   {!isBeginningOfLine()}?=>
+        ( 'black' | 'silver' | 'gray' | 'white' | 'maroon' | 'red' | 'purple' |
+            'fuchsia' | 'green' | 'lime' | 'olive' | 'yellow' | 'navy' |
+            'blue' |'teal' | 'aqua' )
     ;
 
 /**
